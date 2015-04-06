@@ -103,6 +103,11 @@ when they are implemented, and also easily contribute to the project. Because th
 nothing to install, following the development version is significantly easier than most
 open source projects.
 
+.. note::
+  
+   If you are intending to use Tower as the Control Machine, do not use a source install. Please use apt/yum/pip for a stable version
+
+
 To install from source.
 
 .. code-block:: bash
@@ -110,6 +115,10 @@ To install from source.
     $ git clone git://github.com/ansible/ansible.git --recursive
     $ cd ./ansible
     $ source ./hacking/env-setup
+
+If you want to suppress spurious warnings/errors, use:
+
+    $ source ./hacking/env-setup -q
 
 If you don't have pip installed in your version of Python, install pip::
 
@@ -169,10 +178,10 @@ You can also build an RPM yourself.  From the root of a checkout or tarball, use
 
 .. code-block:: bash
 
-    $ git clone git://github.com/ansible/ansible.git
+    $ git clone git://github.com/ansible/ansible.git --recursive
     $ cd ./ansible
     $ make rpm
-    $ sudo rpm -Uvh ~/rpmbuild/ansible-*.noarch.rpm
+    $ sudo rpm -Uvh ./rpmbuild/ansible-*.noarch.rpm
 
 .. _from_apt:
 
@@ -202,6 +211,24 @@ You may also wish to run from source to get the latest, which is covered above.
 
 .. _from_pkg:
 
+Latest Releases Via Portage (Gentoo)
+++++++++++++++++++++++++++++++++++++
+
+.. code-block:: bash
+
+    $ emerge -av app-admin/ansible
+
+To install the newest version, you may need to unmask the ansible package prior to emerging:
+
+.. code-block:: bash
+
+    $ echo 'app-admin/ansible' >> /etc/portage/package.accept_keywords
+
+.. note::
+
+   If you have Python 3 as a default Python slot on your Gentoo nodes (default setting), then you
+   must set ``ansible_python_interpreter = /usr/bin/python2`` in your group or inventory variables.
+
 Latest Releases Via pkg (FreeBSD)
 +++++++++++++++++++++++++++++++++
 
@@ -215,17 +242,26 @@ You may also wish to install from ports, run:
 
     $ sudo make -C /usr/ports/sysutils/ansible install
 
-.. _from_brew:
+.. _on_macos:
 
-Latest Releases Via Homebrew (Mac OSX)
+Latest Releases on Mac OSX
 ++++++++++++++++++++++++++++++++++++++
 
-To install on a Mac, make sure you have Homebrew, then run:
+The preferred way to install ansible on a Mac is via pip.
+
+The instructions can be found in `Latest Releases Via Pip`_ section.
+
+.. _from_pkgutil:
+
+Latest Releases Via OpenCSW (Solaris)
++++++++++++++++++++++++++++++++++++++
+
+Ansible is available for Solaris as `SysV package from OpenCSW <https://www.opencsw.org/packages/ansible/>`_.
 
 .. code-block:: bash
 
-    $ brew update
-    $ brew install ansible
+    # pkgadd -d http://get.opencsw.org/now
+    # /opt/csw/bin/pkgutil -i ansible
 
 .. _from_pip:
 

@@ -71,13 +71,14 @@ class ActionModule(object):
             return ReturnData(conn=conn, result=results)
 
         source = conn.shell.join_path(source)
+        source = self.runner._remote_expand_user(conn, source, tmp)
 
         # calculate checksum for the remote file
-        remote_checksum = self.runner._remote_checksum(conn, tmp, source)
+        remote_checksum = self.runner._remote_checksum(conn, tmp, source, inject)
 
         # use slurp if sudo and permissions are lacking
         remote_data = None
-        if remote_checksum in ('1', '2') or self.runner.sudo:
+        if remote_checksum in ('1', '2') or self.runner.become:
             slurpres = self.runner._execute_module(conn, tmp, 'slurp', 'src=%s' % source, inject=inject)
             if slurpres.is_successful():
                 if slurpres.result['encoding'] == 'base64':
@@ -109,23 +110,26 @@ class ActionModule(object):
                 dest = utils.path_dwim(self.runner.basedir, dest)
         else:
             # files are saved in dest dir, with a subdir for each host, then the filename
-            dest = "%s/%s/%s" % (utils.path_dwim(self.runner.basedir, dest), conn.host, source_local)
+            dest = "%s/%s/%s" % (utils.path_dwim(self.runner.basedir, dest), inject['inventory_hostname'], source_local)
 
         dest = dest.replace("//","/")
 
-        # these don't fail because you may want to transfer a log file that possibly MAY exist
-        # but keep going to fetch other log files
-        if remote_checksum == '0':
-            result = dict(msg="unable to calculate the md5 sum of the remote file", file=source, changed=False)
-            return ReturnData(conn=conn, result=result)
-        if remote_checksum == '1':
-            if fail_on_missing:
-                result = dict(failed=True, msg="the remote file does not exist", file=source)
-            else:
-                result = dict(msg="the remote file does not exist, not transferring, ignored", file=source, changed=False)
-            return ReturnData(conn=conn, result=result)
-        if remote_checksum == '2':
-            result = dict(msg="no read permission on remote file, not transferring, ignored", file=source, changed=False)
+        if remote_checksum in ('0', '1', '2', '3', '4'):
+            # these don't fail because you may want to transfer a log file that possibly MAY exist
+            # but keep going to fetch other log files
+            if remote_checksum == '0':
+                result = dict(msg="unable to calculate the checksum of the remote file", file=source, changed=False)
+            elif remote_checksum == '1':
+                if fail_on_missing:
+                    result = dict(failed=True, msg="the remote file does not exist", file=source)
+                else:
+                    result = dict(msg="the remote file does not exist, not transferring, ignored", file=source, changed=False)
+            elif remote_checksum == '2':
+                result = dict(msg="no read permission on remote file, not transferring, ignored", file=source, changed=False)
+            elif remote_checksum == '3':
+                result = dict(msg="remote file is a directory, fetch cannot work on directories", file=source, changed=False)
+            elif remote_checksum == '4':
+                result = dict(msg="python isn't present on the system.  Unable to compute checksum", file=source, changed=False)
             return ReturnData(conn=conn, result=result)
 
         # calculate checksum for the local file

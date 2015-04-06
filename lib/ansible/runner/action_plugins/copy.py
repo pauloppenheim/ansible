@@ -157,6 +157,9 @@ class ActionModule(object):
             if "-tmp-" not in tmp_path:
                 tmp_path = self.runner._make_tmp_path(conn)
 
+        # expand any user home dir specifier
+        dest = self.runner._remote_expand_user(conn, dest, tmp_path)
+
         for source_full, source_rel in source_files:
             # Generate a hash of the local file.
             local_checksum = utils.checksum(source_full)
@@ -175,7 +178,7 @@ class ActionModule(object):
                 dest_file = conn.shell.join_path(dest)
 
             # Attempt to get the remote checksum
-            remote_checksum = self.runner._remote_checksum(conn, tmp_path, dest_file)
+            remote_checksum = self.runner._remote_checksum(conn, tmp_path, dest_file, inject)
 
             if remote_checksum == '3':
                 # The remote_checksum was executed on a directory.
@@ -187,10 +190,14 @@ class ActionModule(object):
                 else:
                     # Append the relative source location to the destination and retry remote_checksum
                     dest_file = conn.shell.join_path(dest, source_rel)
-                    remote_checksum = self.runner._remote_checksum(conn, tmp_path, dest_file)
+                    remote_checksum = self.runner._remote_checksum(conn, tmp_path, dest_file, inject)
+
+            if remote_checksum == '4':
+                result = dict(msg="python isn't present on the system.  Unable to compute checksum", failed=True)
+                return ReturnData(conn=conn, result=result)
 
             if remote_checksum != '1' and not force:
-                # remote_file does not exist so continue to next iteration.
+                # remote_file exists so continue to next iteration.
                 continue
 
             if local_checksum != remote_checksum:
@@ -227,7 +234,7 @@ class ActionModule(object):
                 self._remove_tempfile_if_content_defined(content, content_tempfile)
 
                 # fix file permissions when the copy is done as a different user
-                if (self.runner.sudo and self.runner.sudo_user != 'root' or self.runner.su and self.runner.su_user != 'root') and not raw:
+                if self.runner.become and self.runner.become_user != 'root' and not raw:
                     self.runner._remote_chmod(conn, 'a+r', tmp_src, tmp_path)
 
                 if raw:

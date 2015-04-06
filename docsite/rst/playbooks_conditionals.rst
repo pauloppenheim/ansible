@@ -11,6 +11,8 @@ whether the hosts match other criteria.   There are many options to control exec
 
 Let's dig into what they are.
 
+.. _the_when_statement:
+
 The When Statement
 ``````````````````
 
@@ -166,11 +168,11 @@ To use this conditional import feature, you'll need facter or ohai installed pri
 you can of course push this out with Ansible if you like::
 
     # for facter
-    ansible -m yum -a "pkg=facter ensure=installed"
-    ansible -m yum -a "pkg=ruby-json ensure=installed"
+    ansible -m yum -a "pkg=facter state=present"
+    ansible -m yum -a "pkg=ruby-json state=present"
 
     # for ohai
-    ansible -m yum -a "pkg=ohai ensure=installed"
+    ansible -m yum -a "pkg=ohai state=present"
 
 Ansible's approach to configuration -- separating variables from tasks, keeps your playbooks
 from turning into arbitrary code with ugly nested ifs, conditionals, and so on - and results

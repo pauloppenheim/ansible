@@ -21,7 +21,7 @@ __metaclass__ = type
 
 import os
 
-from ansible.parsing.yaml import DataLoader
+from ansible.parsing import DataLoader
 
 class DictDataLoader(DataLoader):
 
@@ -46,6 +46,9 @@ class DictDataLoader(DataLoader):
 
     def is_directory(self, path):
         return path in self._known_directories
+
+    def list_directory(self, path):
+        return [x for x in self._known_directories]
 
     def _add_known_directory(self, directory):
         if directory not in self._known_directories:

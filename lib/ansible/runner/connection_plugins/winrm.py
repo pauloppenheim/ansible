@@ -37,6 +37,13 @@ try:
 except ImportError:
     raise errors.AnsibleError("winrm is not installed")
 
+HAVE_KERBEROS = False
+try:
+    import kerberos
+    HAVE_KERBEROS = True
+except ImportError:
+    pass
+
 _winrm_cache = {
     # 'user:pwhash@host:port': <protocol instance>
 }
@@ -46,6 +53,11 @@ def vvvvv(msg, host=None):
 
 class Connection(object):
     '''WinRM connections over HTTP/HTTPS.'''
+
+    transport_schemes = {
+        'http': [('kerberos', 'http'), ('plaintext', 'http'), ('plaintext', 'https')],
+        'https': [('kerberos', 'https'), ('plaintext', 'https')],
+        }
 
     def __init__(self,  runner, host, port, user, password, *args, **kwargs):
         self.runner = runner
@@ -60,6 +72,10 @@ class Connection(object):
         self.shell_id = None
         self.delegate = None
 
+        # Add runas support
+        #self.become_methods_supported=['runas']
+        self.become_methods_supported=[]
+
     def _winrm_connect(self):
         '''
         Establish a WinRM connection over HTTP/HTTPS.
@@ -72,11 +88,10 @@ class Connection(object):
         if cache_key in _winrm_cache:
             vvvv('WINRM REUSE EXISTING CONNECTION: %s' % cache_key, host=self.host)
             return _winrm_cache[cache_key]
-        transport_schemes = [('plaintext', 'https'), ('plaintext', 'http')] # FIXME: ssl/kerberos
-        if port == 5985:
-            transport_schemes = reversed(transport_schemes)
         exc = None
-        for transport, scheme in transport_schemes:
+        for transport, scheme in self.transport_schemes['http' if port == 5985 else 'https']:
+            if transport == 'kerberos' and not HAVE_KERBEROS:
+                continue
             endpoint = urlparse.urlunsplit((scheme, netloc, '/wsman', '', ''))
             vvvv('WINRM CONNECT: transport=%s endpoint=%s' % (transport, endpoint),
                  host=self.host)
@@ -132,7 +147,11 @@ class Connection(object):
             self.protocol = self._winrm_connect()
         return self
 
-    def exec_command(self, cmd, tmp_path, sudo_user=None, sudoable=False, executable=None, in_data=None, su=None, su_user=None):
+    def exec_command(self, cmd, tmp_path, become_user=None, sudoable=False, executable=None, in_data=None):
+
+        if sudoable and self.runner.become and self.runner.become_method not in self.become_methods_supported:
+            raise errors.AnsibleError("Internal Error: this module does not support running commands via %s" % self.runner.become_method)
+
         cmd = cmd.encode('utf-8')
         cmd_parts = shlex.split(cmd, posix=False)
         if '-EncodedCommand' in cmd_parts:
@@ -143,7 +162,7 @@ class Connection(object):
             vvv("EXEC %s" % cmd, host=self.host)
         # For script/raw support.
         if cmd_parts and cmd_parts[0].lower().endswith('.ps1'):
-            script = powershell._build_file_cmd(cmd_parts)
+            script = powershell._build_file_cmd(cmd_parts, quote_args=False)
             cmd_parts = powershell._encode_script(script, as_list=True)
         try:
             result = self._winrm_exec(cmd_parts[0], cmd_parts[1:], from_exec=True)
@@ -193,7 +212,7 @@ class Connection(object):
     def fetch_file(self, in_path, out_path):
         out_path = out_path.replace('\\', '/')
         vvv("FETCH %s TO %s" % (in_path, out_path), host=self.host)
-        buffer_size = 2**20 # 1MB chunks
+        buffer_size = 2**19 # 0.5MB chunks
         if not os.path.exists(os.path.dirname(out_path)):
             os.makedirs(os.path.dirname(out_path))
         out_file = None

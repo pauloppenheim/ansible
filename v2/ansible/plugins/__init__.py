@@ -26,6 +26,7 @@ import sys
 import glob
 import imp
 from ansible import constants as C
+from ansible.utils.display import Display
 from ansible import errors
 
 MODULE_CACHE = {}
@@ -69,6 +70,7 @@ class PluginLoader:
         self._plugin_path_cache = PLUGIN_PATH_CACHE[class_name]
 
         self._extra_dirs = []
+        self._searched_paths = set()
 
     def print_paths(self):
         ''' Returns a string suitable for printing of the search path '''
@@ -131,7 +133,7 @@ class PluginLoader:
             configured_paths = self.config.split(os.pathsep)
             for path in configured_paths:
                 path = os.path.realpath(os.path.expanduser(path))
-                contents = glob.glob("%s/*" % path)
+                contents = glob.glob("%s/*" % path) + glob.glob("%s/*/*" % path)
                 for c in contents:
                     if os.path.isdir(c) and c not in ret:
                         ret.append(c)
@@ -159,28 +161,50 @@ class PluginLoader:
                 self._extra_dirs.append(directory)
                 self._paths = None
 
-    def find_plugin(self, name, suffixes=None, transport=''):
+    def find_plugin(self, name, suffixes=None):
         ''' Find a plugin named name '''
 
         if not suffixes:
             if self.class_name:
                 suffixes = ['.py']
             else:
-                if transport == 'winrm':
-                    suffixes = ['.ps1', '']
-                else:
-                    suffixes = ['.py', '']
+                suffixes = ['.py', '']
 
-        for suffix in suffixes:
-            full_name = '%s%s' % (name, suffix)
+        potential_names = frozenset('%s%s' % (name, s) for s in suffixes)
+        for full_name in potential_names:
             if full_name in self._plugin_path_cache:
                 return self._plugin_path_cache[full_name]
 
-            for i in self._get_paths():
-                path = os.path.join(i, full_name)
-                if os.path.isfile(path):
-                    self._plugin_path_cache[full_name] = path
-                    return path
+        found = None
+        for path in [p for p in self._get_paths() if p not in self._searched_paths]:
+            if os.path.isdir(path):
+                try:
+                    full_paths = (os.path.join(path, f) for f in os.listdir(path))
+                except OSError,e:
+                    d = Display()
+                    d.warning("Error accessing plugin paths: %s" % str(e))
+                for full_path in (f for f in full_paths if os.path.isfile(f)):
+                    for suffix in suffixes:
+                        if full_path.endswith(suffix):
+                            full_name = os.path.basename(full_path)
+                            break
+                    else: # Yes, this is a for-else: http://bit.ly/1ElPkyg
+                        continue
+
+                    if full_name not in self._plugin_path_cache:
+                        self._plugin_path_cache[full_name] = full_path
+
+            self._searched_paths.add(path)
+            for full_name in potential_names:
+                if full_name in self._plugin_path_cache:
+                    return self._plugin_path_cache[full_name]
+
+        # if nothing is found, try finding alias/deprecated
+        if not name.startswith('_'):
+            for alias_name in ('_%s' % n for n in potential_names):
+                # We've already cached all the paths at this point
+                if alias_name in self._plugin_path_cache:
+                    return self._plugin_path_cache[alias_name]
 
         return None
 
@@ -199,6 +223,9 @@ class PluginLoader:
         path = self.find_plugin(name)
         if path is None:
             return None
+        elif kwargs.get('class_only', False):
+            return getattr(self._module_cache[path], self.class_name)
+
         if path not in self._module_cache:
             self._module_cache[path] = imp.load_source('.'.join([self.package, name]), path)
         return getattr(self._module_cache[path], self.class_name)(*args, **kwargs)
@@ -215,7 +242,10 @@ class PluginLoader:
                     continue
                 if path not in self._module_cache:
                     self._module_cache[path] = imp.load_source('.'.join([self.package, name]), path)
-                yield getattr(self._module_cache[path], self.class_name)(*args, **kwargs)
+                if kwargs.get('class_only', False):
+                    yield getattr(self._module_cache[path], self.class_name)
+                else:
+                    yield getattr(self._module_cache[path], self.class_name)(*args, **kwargs)
 
 action_loader = PluginLoader(
     'ActionModule',
@@ -240,7 +270,7 @@ callback_loader = PluginLoader(
 
 connection_loader = PluginLoader(
     'Connection',
-    'ansible.plugins.connection',
+    'ansible.plugins.connections',
     C.DEFAULT_CONNECTION_PLUGIN_PATH,
     'connection_plugins',
     aliases={'paramiko': 'paramiko_ssh'}
@@ -253,37 +283,44 @@ shell_loader = PluginLoader(
     'shell_plugins',
 )
 
-module_finder = PluginLoader(
+module_loader = PluginLoader(
     '',
     'ansible.modules',
     C.DEFAULT_MODULE_PATH,
     'library'
 )
 
-lookup_finder = PluginLoader(
+lookup_loader = PluginLoader(
     'LookupModule',
     'ansible.plugins.lookup',
     C.DEFAULT_LOOKUP_PLUGIN_PATH,
     'lookup_plugins'
 )
 
-vars_finder = PluginLoader(
+vars_loader = PluginLoader(
     'VarsModule',
     'ansible.plugins.vars',
     C.DEFAULT_VARS_PLUGIN_PATH,
     'vars_plugins'
 )
 
-filter_finder = PluginLoader(
+filter_loader = PluginLoader(
     'FilterModule',
     'ansible.plugins.filter',
     C.DEFAULT_FILTER_PLUGIN_PATH,
     'filter_plugins'
 )
 
-fragment_finder = PluginLoader(
+fragment_loader = PluginLoader(
     'ModuleDocFragment',
     'ansible.utils.module_docs_fragments',
     os.path.join(os.path.dirname(__file__), 'module_docs_fragments'),
     '',
+)
+
+strategy_loader = PluginLoader(
+    'StrategyModule',
+    'ansible.plugins.strategies',
+    None,
+    'strategy_plugins',
 )

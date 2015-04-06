@@ -26,9 +26,18 @@ from io import BytesIO
 from subprocess import call
 from ansible import errors
 from hashlib import sha256
+
 # Note: Only used for loading obsolete VaultAES files.  All files are written
 # using the newer VaultAES256 which does not require md5
-from hashlib import md5
+try:
+    from hashlib import md5
+except ImportError:
+    try:
+        from md5 import md5
+    except ImportError:
+        # MD5 unavailable.  Possibly FIPS mode
+        md5 = None
+
 from binascii import hexlify
 from binascii import unhexlify
 from ansible import constants as C
@@ -194,7 +203,10 @@ class VaultEditor(object):
             self.write_data(existing_data, tmp_path)
 
         # drop the user into an editor on the tmp file
-        call(self._editor_shell_command(tmp_path))
+        try:
+            call(self._editor_shell_command(tmp_path))
+        except OSError, e:
+           raise Exception("Failed to open editor (%s): %s" % (self._editor_shell_command(tmp_path)[0],str(e)))
         tmpdata = self.read_data(tmp_path)
 
         # create new vault
@@ -269,8 +281,10 @@ class VaultEditor(object):
         tmpdata = self.read_data(self.filename)
         this_vault = VaultLib(self.password)
         dec_data = this_vault.decrypt(tmpdata)
+        old_umask = os.umask(0o077)
         _, tmp_path = tempfile.mkstemp()
         self.write_data(dec_data, tmp_path)
+        os.umask(old_umask)
 
         # drop the user into pager on the tmp file
         call(self._pager_shell_command(tmp_path))
@@ -358,6 +372,8 @@ class VaultAES(object):
     # http://stackoverflow.com/a/16761459
 
     def __init__(self):
+        if not md5:
+            raise errors.AnsibleError('md5 hash is unavailable (Could be due to FIPS mode).  Legacy VaultAES format is unavailable.')
         if not HAS_AES:
             raise errors.AnsibleError(CRYPTO_UPGRADE)
 
