@@ -11,6 +11,8 @@ source env-setup > /dev/null
 popd > /dev/null
 
 #echo "$@"
-ansible "$@"
+CMD=$1
+shift
+${CMD} "$@"
 exit
 
