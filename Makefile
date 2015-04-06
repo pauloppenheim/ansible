@@ -10,7 +10,7 @@
 #   make deb-src -------------- produce a DEB source
 #   make deb ------------------ produce a DEB
 #   make docs ----------------- rebuild the manpages (results are checked in)
-#   make tests ---------------- run the tests
+#   make tests ---------------- run the tests (see test/README.md for requirements)
 #   make pyflakes, make pep8 -- source code checks
 
 ########################################################
@@ -93,7 +93,7 @@ NOSETESTS3 ?= nosetests-3.3
 all: clean python
 
 tests:
-	PYTHONPATH=./lib $(NOSETESTS) -d -w test/units -v # Could do: --with-coverage --cover-package=ansible
+	PYTHONPATH=./lib $(NOSETESTS) -d -w test/units -v --with-coverage --cover-package=ansible --cover-branches
 
 newtests:
 	PYTHONPATH=./v2:./lib $(NOSETESTS) -d -w v2/test -v --with-coverage --cover-package=ansible --cover-branches
@@ -151,6 +151,7 @@ clean:
 	rm -rf docs/js
 	@echo "Cleaning up authors file"
 	rm -f AUTHORS.TXT
+	find . -type f -name '*.pyc' -delete
 
 python:
 	$(PYTHON) setup.py build
